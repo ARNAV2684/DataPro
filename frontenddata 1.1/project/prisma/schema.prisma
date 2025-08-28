@@ -1,0 +1,58 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Note: We'll use the Supabase client directly for database operations
+// This schema is for TypeScript type generation only
+
+// User files table for storing file metadata
+model user_files {
+  id              String   @id @default(dbgenerated("gen_random_uuid()::text"))
+  user_id         String   
+  filename        String
+  original_name   String
+  file_type       String
+  storage_path    String
+  file_size       BigInt
+  processing_stage String  @default("uploaded")
+  upload_date     DateTime @default(now())
+  
+  // Relations
+  augmented_files augmented_files[]
+}
+
+// Augmented files table for storing results of data augmentation
+model augmented_files {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()::text"))
+  original_file_id    String   
+  technique           String   
+  parameters          Json     
+  result_storage_path String  
+  sample_count        Int      
+  created_at          DateTime @default(now())
+  
+  // Relations
+  user_files user_files @relation(fields: [original_file_id], references: [id], onDelete: Cascade)
+}
+
+// Processing jobs table for tracking long-running operations
+model processing_jobs {
+  id           String   @id @default(dbgenerated("gen_random_uuid()::text"))
+  user_id      String   
+  job_type     String   
+  status       String   @default("pending")
+  parameters   Json     
+  result       Json?    
+  error_message String? 
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now()) @updatedAt
+}
