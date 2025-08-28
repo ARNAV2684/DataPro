@@ -438,7 +438,7 @@ python api/run_migration.py
 
 ## Team & Acknowledgments
 
-**Lead Developer**: \[Arnav Gupta]
+**Lead Developer**: \Arnav Gupta
 **Architecture**: Full-stack ML pipeline implementation
 **Technologies**: React, FastAPI, Supabase, Python ML Stack
 
@@ -464,7 +464,7 @@ python api/run_migration.py
 
 ## License
 
-This project is proprietary software developed for \[Garuda]. All rights reserved.
+This software is proprietary. All rights reserved.
 
 ---
 
