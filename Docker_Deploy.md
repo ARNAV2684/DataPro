@@ -1,4 +1,4 @@
-# 🚀 Garuda ML Pipeline - Quick Start Guide
+# Garuda ML Pipeline - Quick Start Guide
 
 ## One-Command Deployment
 
@@ -95,45 +95,8 @@ docker-compose -f docker-compose.hub.yml restart backend
                        │   (PostgreSQL)   │
                        └──────────────────┘
 ```
-
-### Features Overview
-
-#### 📊 Data Upload
-- Support for CSV, JSON, and text files
-- Automatic data type detection
-- File validation and preprocessing
-
-#### 🔧 Preprocessing
-- Handle missing values
-- Outlier detection and treatment
-- Feature scaling and transformation
-- Text tokenization
-
-#### 📈 Exploratory Data Analysis (EDA)
-- Statistical summaries
-- Correlation analysis
-- Advanced visualizations
-- Text analysis (sentiment, word frequency, topic modeling)
-
-#### 🤖 Machine Learning Models
-- **Classification:** Logistic Regression, Random Forest, XGBoost
-- **Text Classification:** DistilBERT fine-tuning
-- **Hyperparameter tuning** and cross-validation
-
-#### 📈 Data Augmentation
-- **Numeric:** SMOTE, noise injection, scaling
-- **Text:** Synonym replacement, MLM, random insertion
-
 ### Support
 
 For issues or questions:
 - GitHub: [ARNAV2684/DataPro](https://github.com/ARNAV2684/DataPro)
 - Create an issue with your problem description and logs
-
-### License
-
-This project is open source. Feel free to use, modify, and distribute!
-
----
-
-**Made with ❤️ by ARNAV2684**
