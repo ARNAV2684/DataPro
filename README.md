@@ -4,7 +4,7 @@
 
 ## Executive Summary
 
-**Garuda ML Pipeline** is a comprehensive, production-ready machine learning platform that automates the data science workflow from data ingestion to model deployment. Built with modern web technologies and an enterprise-grade architecture, the platform streamlines ML operations for data scientists and organizations.
+**ML Pipeline** is a comprehensive, production-ready machine learning platform that automates the data science workflow from data ingestion to model deployment. Built with modern web technologies and an enterprise-grade architecture, the platform streamlines ML operations for data scientists and organizations.
 
 ### Current Scope
 
@@ -38,6 +38,15 @@ The **numeric pipeline** (ingestion → preprocessing → augmentation → EDA �
 ## Architecture Overview
 
 The Garuda ML Pipeline follows a modern microservices architecture with clear separation of concerns.
+
+## Frontend Display
+<img width="1386" height="553" alt="Screenshot 2025-09-10 121832" src="https://github.com/user-attachments/assets/a0591c9d-458e-43bd-b416-b0c4b3d612d9" />
+<img width="733" height="672" alt="Screenshot 2025-09-10 122001" src="https://github.com/user-attachments/assets/217b08a2-5b99-4fe5-8045-d7e8648937b5" />
+<img width="1040" height="792" alt="Screenshot 2025-09-10 122152" src="https://github.com/user-attachments/assets/9071ba12-a3cc-45aa-9f8a-a4c8c5879b7f" />
+<img width="774" height="702" alt="Screenshot 2025-09-10 122304" src="https://github.com/user-attachments/assets/1e3a93a7-e8d2-42e0-8557-13ee66ebf0e3" />
+<img width="787" height="744" alt="Screenshot 2025-09-10 122417" src="https://github.com/user-attachments/assets/055d09db-08c8-4ec1-9515-8f426555484d" />
+
+
 
 ### Frontend Layer (React + TypeScript)
 
