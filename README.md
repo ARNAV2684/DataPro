@@ -45,7 +45,8 @@ The Garuda ML Pipeline follows a modern microservices architecture with clear se
 <img width="1040" height="792" alt="Screenshot 2025-09-10 122152" src="https://github.com/user-attachments/assets/9071ba12-a3cc-45aa-9f8a-a4c8c5879b7f" />
 <img width="774" height="702" alt="Screenshot 2025-09-10 122304" src="https://github.com/user-attachments/assets/1e3a93a7-e8d2-42e0-8557-13ee66ebf0e3" />
 <img width="787" height="744" alt="Screenshot 2025-09-10 122417" src="https://github.com/user-attachments/assets/055d09db-08c8-4ec1-9515-8f426555484d" />
-
+<img width="984" height="824" alt="Screenshot 2025-10-30 215420" src="https://github.com/user-attachments/assets/e4e8c385-f529-4e83-98eb-70525400fb0d" />
+<img width="988" height="908" alt="Screenshot 2025-10-30 215435" src="https://github.com/user-attachments/assets/5f99d78d-b8b1-40cf-a1dc-f51603ebbf89" />
 
 
 ### Frontend Layer (React + TypeScript)
