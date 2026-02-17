@@ -1,4 +1,4 @@
-# Garuda ML Pipeline: Enterprise-Grade Data Science Platform
+#ML Pipeline: Enterprise-Grade Data Science Platform
 
 ![ML Pipeline Architecture](Screenshot%202025-07-24%20182358.png)
 
