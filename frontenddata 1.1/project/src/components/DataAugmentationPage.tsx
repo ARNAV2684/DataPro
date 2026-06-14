@@ -453,10 +453,12 @@ const DataAugmentationPage: React.FC = () => {
     try {
       let allAugmentedSamples: any[] = []
 
-      // Check if mixup is enabled
+      // Check if mixup is enabled. Mixup is handled specially only for TEXT
+      // (it operates on text columns); image mixup flows through the generic
+      // image augmentation path below.
       const mixupTechnique = enabledTechniques.find(t => t.id === 'mixup')
-      
-      if (mixupTechnique) {
+
+      if (mixupTechnique && datasetType === 'text') {
         console.log('Mixup technique enabled, calling API...')
         
         // Progress update
@@ -549,8 +551,11 @@ const DataAugmentationPage: React.FC = () => {
         setAugmentationProgress(70)
       }
 
-      // Handle other techniques with API calls
-      const otherTechniques = enabledTechniques.filter(t => t.id !== 'mixup')
+      // Handle other techniques with API calls. Only the TEXT mixup was handled
+      // above, so keep image mixup (and everything else) in this loop.
+      const otherTechniques = enabledTechniques.filter(
+        t => !(t.id === 'mixup' && datasetType === 'text')
+      )
       if (otherTechniques.length > 0) {
         setAugmentationProgress(80)
         
@@ -589,6 +594,14 @@ const DataAugmentationPage: React.FC = () => {
                 break
               case 'gaussian-noise':
                 response = await apiClient.augmentWithNoise(baseRequest)
+                break
+              // Image augmentation techniques (consolidated image endpoint)
+              case 'rotation':
+              case 'color-jitter':
+              case 'elastic-transform':
+              case 'cutout':
+              case 'mixup':
+                response = await apiClient.augmentImage(baseRequest)
                 break
               default:
                 console.warn(`Technique ${technique.id} not implemented yet`)

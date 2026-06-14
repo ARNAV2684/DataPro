@@ -126,6 +126,15 @@ def save_images_zip(items: List[ImageItem], output_path) -> str:
     return output_path
 
 
+def suffix_relpath(relpath: str, suffix: str) -> str:
+    """Insert a suffix before the extension, preserving the folder.
+
+    e.g. suffix_relpath("cats/x.jpg", "_aug1") -> "cats/x_aug1.jpg"
+    """
+    p = Path(relpath)
+    return str(p.with_name(f"{p.stem}{suffix}{p.suffix}"))
+
+
 def class_distribution(items: List[ImageItem]) -> dict:
     """Return {label: count} for the given items (None labels grouped as 'unlabeled')."""
     dist: dict = {}

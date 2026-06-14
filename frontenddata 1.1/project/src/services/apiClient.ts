@@ -248,6 +248,15 @@ export class GarudaAPIClient {
     return this.apiCall<AugmentResponse>('/api/augment/random', 'POST', request)
   }
 
+  /**
+   * Run an image augmentation technique. `request.technique` selects the method
+   * (rotation, color-jitter, elastic-transform, cutout, mixup). Grows the image
+   * dataset and stores the result as a ZIP in the augmented bucket.
+   */
+  async augmentImage(request: AugmentRequest): Promise<AugmentResponse> {
+    return this.apiCall<AugmentResponse>('/api/augment/image', 'POST', request, false, getTimeout('augmentation'))
+  }
+
   // ===================================
   // EDA ENDPOINTS
   // ===================================

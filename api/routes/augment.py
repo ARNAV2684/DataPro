@@ -6,6 +6,11 @@ synonym replacement, and other data augmentation techniques.
 """
 
 import time
+import json
+import os
+import tempfile
+import uuid
+import logging
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, status
 from typing import Dict, Any
@@ -17,6 +22,9 @@ from shared.types import (
 )
 from shared.supabase_utils import get_supabase_manager
 from shared.module_runner import get_module_runner
+from shared.image_pipeline import parse_summary, extract_dataset_id, download_image_input
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/augment", tags=["augment"])
 
@@ -417,3 +425,169 @@ async def _run_augmentation_module(request: AugmentRequest, module_path: str,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error in {technique_name} augmentation: {str(e)}"
         )
+
+
+# ===================================
+# IMAGE AUGMENTATION
+# ===================================
+
+# Maps the frontend technique id -> standalone image augmentation script.
+IMAGE_AUGMENT_MODULES = {
+    "rotation": "4and5week/Augmentation/imageaug/rotation.py",
+    "color-jitter": "4and5week/Augmentation/imageaug/color_jitter.py",
+    "elastic-transform": "4and5week/Augmentation/imageaug/elastic_transform.py",
+    "cutout": "4and5week/Augmentation/imageaug/cutout.py",
+    "mixup": "4and5week/Augmentation/imageaug/mixup.py",
+}
+
+
+@router.post("/image", response_model=AugmentResponse)
+async def augment_image(request: AugmentRequest):
+    """Run an image augmentation technique (selected via ``request.technique``).
+
+    Grows the image dataset (originals + augmented copies) and writes the result
+    as a ZIP to the ``augmented`` bucket.
+    """
+    technique = request.technique
+    module_path = IMAGE_AUGMENT_MODULES.get(technique)
+    if not module_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unknown image augmentation technique '{technique}'. "
+                f"Valid techniques: {list(IMAGE_AUGMENT_MODULES.keys())}"
+            ),
+        )
+    return _run_image_augmentation(request, module_path, technique)
+
+
+def _run_image_augmentation(request: AugmentRequest, module_path: str,
+                            technique_name: str) -> AugmentResponse:
+    """Download -> run augmentation script -> upload augmented ZIP -> record artifact."""
+    start_time = time.time()
+    input_file = None
+    output_file = None
+    try:
+        supabase_manager = get_supabase_manager()
+        module_runner = get_module_runner()
+
+        input_file, source_bucket = download_image_input(
+            supabase_manager, request.dataset_key
+        )
+        if not input_file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Failed to download dataset from any bucket. Key: {request.dataset_key}",
+            )
+
+        out_fd, output_file = tempfile.mkstemp(suffix=".zip")
+        os.close(out_fd)
+
+        params = dict(request.params or {})
+        if request.target_size:
+            params.setdefault("target_size", request.target_size)
+
+        cli_args = [
+            "--input", os.path.abspath(input_file),
+            "--output", os.path.abspath(output_file),
+            "--params", json.dumps(params),
+        ]
+        logger.info(f"Running image augmentation '{technique_name}' via {module_path}")
+        result = module_runner.run_cli_script(module_path, cli_args)
+
+        if not result["success"]:
+            logger.error(f"Image augmentation failed: {result.get('error')} {result.get('stderr', '')}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Image augmentation failed: {result.get('error', 'Unknown error')}",
+            )
+
+        summary = parse_summary(result.get("stdout", ""))
+        dataset_id = extract_dataset_id(request.dataset_key)
+
+        output_key = supabase_manager.generate_storage_key(
+            user_id=request.user_id,
+            dataset_id=dataset_id,
+            stage="augmented",
+            filename="augmented_images.zip",
+        )
+        with open(output_file, "rb") as f:
+            upload_result = supabase_manager.upload_file(
+                bucket_name=supabase_manager.buckets["augmented"],
+                storage_key=output_key,
+                file_data=f.read(),
+                content_type="application/zip",
+            )
+        if not upload_result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload results: {upload_result['error']}",
+            )
+
+        original_size = summary.get("original_size")
+        augmented_size = summary.get("augmented_size")
+        ratio = None
+        if original_size and augmented_size:
+            ratio = round(augmented_size / original_size, 3)
+
+        artifact_id = str(uuid.uuid4())
+        artifact = PipelineArtifact(
+            id=artifact_id,
+            user_id=request.user_id,
+            dataset_id=dataset_id,
+            stage=PipelineStage.AUGMENT,
+            operation=technique_name,
+            bucket_key=output_key,
+            status=ProcessingStatus.COMPLETED,
+            parameters=params,
+            metadata={
+                "module_path": module_path,
+                "input_key": request.dataset_key,
+                "source_bucket": source_bucket,
+                "data_type": "image",
+                "summary": summary,
+            },
+            execution_time=time.time() - start_time,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db_result = supabase_manager.insert_pipeline_artifact(artifact)
+        if not db_result["success"]:
+            logger.warning(f"Failed to save image augment artifact: {db_result['error']}")
+        artifact_id = db_result.get("artifact_id", artifact_id)
+
+        return AugmentResponse(
+            success=True,
+            message=f"Image augmentation '{technique_name}' completed successfully",
+            output_key=output_key,
+            artifact_id=artifact_id,
+            meta={
+                "technique": technique_name,
+                "module_path": module_path,
+                "input_key": request.dataset_key,
+                "dataset_id": dataset_id,
+                "data_type": "image",
+                "summary": summary,
+            },
+            original_size=original_size,
+            augmented_size=augmented_size,
+            augmentation_ratio=ratio,
+            logs=[result.get("stdout", ""), result.get("stderr", "")],
+            execution_time=time.time() - start_time,
+            timestamp=datetime.utcnow().isoformat(),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error in image {technique_name} augmentation: {str(e)}",
+        )
+    finally:
+        for path in (input_file, output_file):
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
