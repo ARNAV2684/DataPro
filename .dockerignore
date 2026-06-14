@@ -1,0 +1,24 @@
+# Backend build context lives at the repo root; keep the image lean.
+.git
+.gitignore
+**/__pycache__
+**/*.py[cod]
+*.egg-info/
+
+# Local virtual environment (the app's data/ venv) and caches
+data/
+venv/
+env/
+ENV/
+.cache/
+
+# Frontend is built in its own image; don't ship it inside the backend.
+frontenddata 1.1/
+**/node_modules
+
+# Docs, screenshots, scratch
+*.md
+Screenshot*.png
+imgtest_tmp/
+.vscode/
+.idea/

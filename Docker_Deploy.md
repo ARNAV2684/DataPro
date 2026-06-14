@@ -29,10 +29,10 @@ That's it! The entire ML pipeline is now running on your localhost! 🎉
 ### What You Get
 
 - ✅ **Complete ML Pipeline:** Upload datasets, preprocess data, run EDA, train models
-- ✅ **Text & Numeric Data:** Support for both text and numeric datasets
-- ✅ **Multiple ML Models:** Logistic Regression, Random Forest, XGBoost, DistilBERT
-- ✅ **Data Augmentation:** SMOTE, Mixup, Noise injection, and more
-- ✅ **Advanced EDA:** Statistical analysis, correlation analysis, topic modeling
+- ✅ **Text, Numeric & Image Data:** Full support across all three data types
+- ✅ **Multiple ML Models:** Logistic Regression, Random Forest, XGBoost, DistilBERT, and image classifiers (CNN, ResNet, EfficientNet, ViT)
+- ✅ **Data Augmentation:** SMOTE, Mixup, Noise injection, image rotation/jitter/cutout/elastic, and more
+- ✅ **Advanced EDA:** Statistical analysis, correlation analysis, topic modeling, and image analysis (color, quality, similarity, PCA embeddings)
 - ✅ **Production Ready:** Nginx frontend, FastAPI backend with health checks
 
 ### Available Docker Images
@@ -79,6 +79,33 @@ docker-compose -f docker-compose.hub.yml logs backend
 # Restart backend
 docker-compose -f docker-compose.hub.yml restart backend
 ```
+
+### Build From Source
+
+If you want to build the images yourself (instead of pulling from Docker Hub):
+
+1. **Configure Supabase credentials:**
+   ```bash
+   cp api/.env.example api/.env
+   # edit api/.env with your SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
+   ```
+   See [`SUPABASE_SETUP.md`](SUPABASE_SETUP.md) for the required storage buckets
+   (the `eda` bucket must allow public read for visualizations to display).
+
+2. **Build and run:**
+   ```bash
+   docker compose up --build
+   ```
+   - **Frontend:** http://localhost:3000
+   - **Backend API:** http://localhost:8000 (interactive docs at `/docs`)
+
+   The backend image bundles the full pipeline (numeric, text **and image**
+   scripts) and CPU-only PyTorch. The first build downloads ~2–3 GB of Python
+   dependencies.
+
+> **Image datasets:** upload a `.zip` of images (optionally with class
+> sub-folders for training) or single images. See
+> [`IMAGE_PIPELINE.md`](IMAGE_PIPELINE.md) for the full image flow reference.
 
 ### Architecture
 
