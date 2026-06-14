@@ -436,3 +436,211 @@ async def _run_training_module(request: ModelRequest, module_path: str,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error in {model_type} training: {str(e)}"
         )
+
+
+# ===================================
+# IMAGE MODEL TRAINING
+# ===================================
+
+# Maps the frontend model id -> --arch value understood by image_classifier.py.
+IMAGE_MODEL_ARCHS = {
+    "cnn-basic": "cnn-basic",
+    "resnet": "resnet",
+    "efficientnet": "efficientnet",
+    "vision-transformer": "vision-transformer",
+}
+
+
+@router.post("/image", response_model=ModelResponse)
+async def train_image_model(request: ModelRequest):
+    """Train an image classifier (architecture selected via ``request.model_type``).
+
+    Expects an image dataset (ZIP with class sub-folders). Runs
+    6week/models/image_classifier.py, uploads the trained model + artifacts to
+    the ``models`` bucket, and returns accuracy/precision/recall/F1.
+    """
+    arch = IMAGE_MODEL_ARCHS.get(request.model_type)
+    if not arch:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unknown image model '{request.model_type}'. "
+                f"Valid models: {list(IMAGE_MODEL_ARCHS.keys())}"
+            ),
+        )
+    return await _run_image_training(request, arch)
+
+
+async def _run_image_training(request: ModelRequest, arch: str) -> ModelResponse:
+    start_time = time.time()
+    try:
+        supabase_manager = get_supabase_manager()
+        module_runner = get_module_runner()
+
+        # Extract dataset_id from the key (format user_<id>/dataset_<id>/...).
+        path_parts = request.dataset_key.split("/")
+        dataset_id = None
+        for part in path_parts:
+            if part.startswith("dataset_"):
+                dataset_id = part[len("dataset_"):]
+                break
+        if not dataset_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid dataset key format: {request.dataset_key}",
+            )
+
+        # Download the image dataset from whichever bucket holds it.
+        input_file = None
+        input_bucket = None
+        for bucket in ["augmented", "preprocessed", "datasets"]:
+            try:
+                dl = supabase_manager.download_file(
+                    bucket_name=supabase_manager.buckets[bucket],
+                    storage_key=request.dataset_key,
+                )
+                if dl["success"]:
+                    input_file, input_bucket = dl["local_path"], bucket
+                    break
+            except Exception:
+                continue
+        if not input_file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Failed to download dataset from any bucket. Key: {request.dataset_key}",
+            )
+
+        output_dir = module_runner.temp_dir / f"image_model_{arch}_{dataset_id}_{int(time.time())}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        hyper = dict(request.hyperparameters or {})
+        epochs = int(hyper.get("epochs", (request.params or {}).get("epochs", 5)))
+        val_split = float(request.validation_split or 0.2)
+
+        cli_args = [
+            "--data-path", os.path.abspath(input_file),
+            "--output-dir", str(output_dir),
+            "--arch", arch,
+            "--epochs", str(epochs),
+            "--val-split", str(val_split),
+            "--params", json.dumps(hyper),
+        ]
+        logger.info(f"Training image model '{arch}' ({epochs} epochs)")
+        training_result = module_runner.run_cli_script("6week/models/image_classifier.py", cli_args)
+
+        if not training_result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    f"Image model training failed: {training_result.get('error', 'Unknown error')}. "
+                    f"{training_result.get('stderr', '')[:300]}"
+                ),
+            )
+
+        # Read metrics.json written by the trainer.
+        metrics_data = {}
+        full_metrics = {}
+        metrics_file = output_dir / "metrics.json"
+        if metrics_file.exists():
+            try:
+                with open(metrics_file, "r") as f:
+                    full_metrics = json.load(f)
+                metrics_data = {
+                    k: float(v) for k, v in full_metrics.get("test_metrics", {}).items()
+                    if isinstance(v, (int, float))
+                }
+            except Exception as e:
+                logger.warning(f"Failed to read image metrics: {e}")
+
+        # Upload all artifacts (model.pt, label_map.json, metrics.json, training_curve.png).
+        model_artifacts = []
+        model_size = 0
+        for file_path in output_dir.rglob("*"):
+            if not file_path.is_file():
+                continue
+            model_size += file_path.stat().st_size
+            artifact_key = supabase_manager.generate_storage_key(
+                user_id=request.user_id,
+                dataset_id=dataset_id,
+                stage="models",
+                filename=f"image_{arch}_{file_path.name}",
+            )
+            content_type = "application/octet-stream"
+            if file_path.suffix == ".json":
+                content_type = "application/json"
+            elif file_path.suffix == ".png":
+                content_type = "image/png"
+            with open(file_path, "rb") as f:
+                up = supabase_manager.upload_file(
+                    bucket_name=supabase_manager.buckets["models"],
+                    storage_key=artifact_key,
+                    file_data=f.read(),
+                    content_type=content_type,
+                )
+            if up["success"]:
+                model_artifacts.append({
+                    "filename": file_path.name,
+                    "storage_key": artifact_key,
+                    "size": file_path.stat().st_size,
+                })
+
+        # Primary output = the model weights, if uploaded.
+        primary_output_key = next(
+            (a["storage_key"] for a in model_artifacts if a["filename"] == "model.pt"),
+            model_artifacts[0]["storage_key"] if model_artifacts else None,
+        )
+        model_id = f"image_{arch}_{dataset_id}_{int(time.time())}"
+
+        artifact = Artifact(
+            user_id=request.user_id,
+            dataset_id=dataset_id,
+            stage=PipelineStage.MODEL,
+            bucket_key=primary_output_key or "",
+            status=ProcessingStatus.COMPLETED,
+            meta={
+                "model_id": model_id,
+                "model_type": arch,
+                "data_type": "image",
+                "input_key": request.dataset_key,
+                "input_bucket": input_bucket,
+                "artifacts": model_artifacts,
+                "metrics": metrics_data,
+                "detailed_metrics": full_metrics,
+                "model_size": model_size,
+            },
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db_result = supabase_manager.insert_artifact(artifact)
+        if not db_result["success"]:
+            logger.warning(f"Failed to save image model artifact: {db_result.get('error')}")
+
+        training_time = time.time() - start_time
+        return ModelResponse(
+            success=True,
+            message=f"Image model '{arch}' trained successfully",
+            output_key=primary_output_key,
+            meta={
+                "model_type": arch,
+                "data_type": "image",
+                "input_key": request.dataset_key,
+                "input_bucket": input_bucket,
+                "artifacts_count": len(model_artifacts),
+                "detailed_metrics": full_metrics,
+            },
+            model_id=model_id,
+            metrics=metrics_data,
+            model_size=model_size,
+            training_time=training_time,
+            logs=[training_result.get("stdout", ""), training_result.get("stderr", "")],
+            execution_time=training_time,
+            timestamp=datetime.utcnow().isoformat(),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error in image {arch} training: {str(e)}",
+        )
