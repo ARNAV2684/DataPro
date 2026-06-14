@@ -5,6 +5,44 @@
 > only Supabase-side actions needed to run it end-to-end against the live project
 > (which currently lives in a separate Supabase account).
 
+## ✅ Verified status (live project: "Data Science", ref `gtozjiqzsdbuptweeyeg`)
+
+Checked against the live project via the Supabase MCP — it is **already provisioned**:
+
+- ✅ All backend tables exist with the correct columns and enums (`datasets`,
+  `pipeline_artifacts`, `artifacts`, `data_samples`, `processing_logs`,
+  `data_quality_metrics`, `model_results`, `user_profiles`, `user_preferences`)
+  and already contain data.
+- ✅ All 5 storage buckets exist; **`eda` is public** (visualizations work).
+- ✅ The image flow needs **no schema changes** (reuses existing tables).
+
+**To run the app you only need to finish two things:**
+
+1. **Service-role key** — paste it into `api/.env` as `SUPABASE_SERVICE_ROLE_KEY`
+   (Dashboard → Project Settings → API → `service_role`). It is secret and is the
+   only value that cannot be fetched automatically; the backend's `SupabaseManager`
+   requires it.
+2. **Auth redirect URLs** — Dashboard → Authentication → URL Configuration → add
+   `http://localhost:3000` (and `http://localhost:5173` for local dev) so Google /
+   email sign-in redirects back to the app.
+
+`api/.env`, `frontenddata 1.1/project/.env`, and the repo-root `.env` have already
+been created locally (gitignored) with the URL + anon key pre-filled.
+
+> Setting up a **fresh / new** Supabase project instead? Paste
+> [`supabase/schema.sql`](supabase/schema.sql) into the SQL Editor — it creates
+> every table, enum and bucket in one go.
+
+> ⚠️ **Security advisory (from Supabase):** RLS is disabled on `user_preferences`
+> and `artifacts`, so anyone with the anon key can read/modify those rows. This was
+> deprioritised per your request. To lock down later:
+> ```sql
+> ALTER TABLE public.user_preferences ENABLE ROW LEVEL SECURITY;
+> ALTER TABLE public.artifacts ENABLE ROW LEVEL SECURITY;
+> ```
+> (Add policies afterwards, or those tables become inaccessible to the anon key.)
+> Docs: https://supabase.com/docs/guides/database/postgres/row-level-security
+
 ## 0. Backend credentials
 
 The backend reads these environment variables (see `api/.env.example`):
