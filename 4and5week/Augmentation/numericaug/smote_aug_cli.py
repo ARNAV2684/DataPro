@@ -254,6 +254,38 @@ def combine_features_and_target(X: pd.DataFrame, y: pd.Series,
     return result_df
 
 
+def save_class_balance_chart(original: pd.Series, augmented: pd.Series, output_path: str):
+    """Save a before/after class-balance bar chart (report Fig 6.3) next to the
+    output CSV. The API route uploads it to the public `eda` bucket. Never raises."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        before = Counter(original.astype(str))
+        after = Counter(augmented.astype(str))
+        labels = sorted(set(before) | set(after))
+        x = np.arange(len(labels))
+        width = 0.38
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.bar(x - width / 2, [before.get(l, 0) for l in labels], width, label="Before", color="#FFA94D")
+        ax.bar(x + width / 2, [after.get(l, 0) for l in labels], width, label="After SMOTE", color="#22A06B")
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=30, ha="right")
+        ax.set_ylabel("samples")
+        ax.set_title("Class balance - before vs after SMOTE")
+        ax.legend()
+
+        out_dir = os.path.dirname(os.path.abspath(output_path)) or "."
+        png_path = os.path.join(out_dir, "class_balance.png")
+        fig.savefig(png_path, bbox_inches="tight", dpi=120)
+        plt.close(fig)
+        print(f"Class balance chart saved to: {png_path}")
+    except Exception as e:
+        print(f"Class balance chart skipped: {e}")
+
+
 def main():
     """
     Main function for command-line SMOTE augmentation.
@@ -304,7 +336,10 @@ def main():
         
         # Save the augmented dataframe
         augmented_df.to_csv(args.output, index=False)
-        
+
+        # Class-balance chart (Fig 6.3): before = original target, after = resampled
+        save_class_balance_chart(df[args.target], augmented_df[args.target], args.output)
+
         print(f"\nSMOTE augmentation completed successfully!")
         print(f"Input shape: {df.shape}")
         print(f"Output shape: {augmented_df.shape}")

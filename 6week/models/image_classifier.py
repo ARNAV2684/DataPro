@@ -316,6 +316,17 @@ def main() -> None:
     except Exception:
         pass
 
+    # Confusion matrix (Fig 6.5) + metrics bar (Fig 6.4)
+    try:
+        import plot_utils
+        true_labels = [classes[i] for i in all_true]
+        pred_labels = [classes[i] for i in all_preds]
+        plot_utils.save_classification_charts(
+            true_labels, pred_labels, args.output_dir, f"image-{args.arch}",
+            {"accuracy": final_acc, "f1_score": f1, "precision": precision, "recall": recall})
+    except Exception as _chart_err:
+        print(f"[charts] skipped: {_chart_err}")
+
     print(f"Test Accuracy: {final_acc:.4f}")
     print(f"Test F1-Score: {f1:.4f}")
     print(json.dumps({"success": True, **metrics["test_metrics"], "arch": args.arch,

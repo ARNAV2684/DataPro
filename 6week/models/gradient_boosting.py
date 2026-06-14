@@ -284,7 +284,15 @@ def main():
     
     # Save everything
     save_model_and_metrics(model, preprocessors, metrics, args, X.columns.tolist())
-    
+
+    # Result charts (Fig 6.4 metrics bar, Fig 6.5 confusion matrix) on the validation split
+    try:
+        import plot_utils
+        plot_utils.save_classification_charts(
+            y_val, model.predict(X_val), args.output_dir, "Gradient Boosting", metrics)
+    except Exception as _chart_err:
+        print(f"[charts] skipped: {_chart_err}")
+
     print(f"[SUCCESS] Model and metrics saved to {args.output_dir}")
     print("[COMPLETE] Training completed successfully!")
 
