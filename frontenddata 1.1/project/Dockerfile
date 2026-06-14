@@ -5,6 +5,14 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
+# Supabase credentials are inlined by Vite at build time. Pass them with
+#   docker build --build-arg VITE_SUPABASE_URL=... --build-arg VITE_SUPABASE_ANON_KEY=...
+# or via docker-compose build args (see docker-compose.yml).
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
 COPY package*.json ./
 RUN npm install
 

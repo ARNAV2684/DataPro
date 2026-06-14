@@ -17,6 +17,20 @@ The backend reads these environment variables (see `api/.env.example`):
 
 Create `api/.env` from `api/.env.example` and fill these in.
 
+### Frontend credentials (build time)
+
+The frontend's Supabase client (`src/lib/supabase.ts`) reads these **Vite** vars,
+which are inlined into the bundle **at build time**:
+
+| Variable                  | Purpose |
+|---------------------------|---------|
+| `VITE_SUPABASE_URL`       | Same project URL as above |
+| `VITE_SUPABASE_ANON_KEY`  | Anon (public) key for browser auth/storage |
+
+- Local dev: copy `frontenddata 1.1/project/.env.example` → `.env`.
+- Docker: copy the repo-root `.env.example` → `.env` (docker compose passes these
+  as build args to the frontend image). Rebuild the frontend after changing them.
+
 ## 1. Storage buckets (REQUIRED for the image flow)
 
 The pipeline uses five buckets. Create any that don't exist:
