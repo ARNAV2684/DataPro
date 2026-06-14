@@ -463,6 +463,16 @@ const ExploratoryDataAnalysisPage: React.FC = () => {
           response = await apiClient.runNgramAnalysis(request)
           break
 
+        // Image EDA analyses (consolidated image endpoint)
+        case 'image-statistics':
+        case 'color-analysis':
+        case 'feature-extraction':
+        case 'object-detection':
+        case 'similarity-analysis':
+        case 'quality-assessment':
+          response = await apiClient.runImageEDA(request)
+          break
+
         default:
           console.log(`Analysis ${analysisName} - simulating processing (no API endpoint available)`)
           await new Promise(resolve => setTimeout(resolve, 3000))

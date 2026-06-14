@@ -301,6 +301,16 @@ export class GarudaAPIClient {
     return this.apiCall<EDAResponse>('/api/eda/ngram-analysis', 'POST', request)
   }
 
+  /**
+   * Run an image EDA analysis. `request.analysis_type` selects the analysis
+   * (Image Statistics, Color Analysis, Feature Extraction, Object Detection,
+   * Similarity Analysis, Quality Assessment). Returns visualization URLs in
+   * `meta.visualization_urls`.
+   */
+  async runImageEDA(request: EDARequest): Promise<EDAResponse> {
+    return this.apiCall<EDAResponse>('/api/eda/image', 'POST', request, false, getTimeout('eda'))
+  }
+
   // ===================================
   // MODEL TRAINING ENDPOINTS
   // ===================================
