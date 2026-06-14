@@ -13,9 +13,13 @@ from typing import Dict, Any, List
 import os
 import tempfile
 
+import json
+import uuid
+
 from shared.types import EDARequest, EDAResponse, Artifact, PipelineStage, ProcessingStatus
 from shared.supabase_utils import get_supabase_manager
 from shared.module_runner import get_module_runner
+from shared.image_pipeline import parse_summary, extract_dataset_id, download_image_input
 
 router = APIRouter(prefix="/api/eda", tags=["eda"])
 logger = logging.getLogger(__name__)
@@ -645,3 +649,163 @@ async def _run_eda_module(request: EDARequest, module_path: str, analysis_name: 
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error in {analysis_name} analysis: {str(e)}"
         )
+
+
+# ===================================
+# IMAGE EDA
+# ===================================
+
+# Maps the frontend analysis id (slugified name) -> standalone EDA script.
+IMAGE_EDA_MODULES = {
+    "image-statistics": "EDA/image_EDA/image_statistics.py",
+    "color-analysis": "EDA/image_EDA/color_analysis.py",
+    "feature-extraction": "EDA/image_EDA/feature_extraction.py",
+    "object-detection": "EDA/image_EDA/object_detection.py",
+    "similarity-analysis": "EDA/image_EDA/similarity_analysis.py",
+    "quality-assessment": "EDA/image_EDA/quality_assessment.py",
+}
+
+
+@router.post("/image", response_model=EDAResponse)
+async def image_eda(request: EDARequest):
+    """Run an image EDA analysis (selected via ``request.analysis_type``).
+
+    Generates visualization PNGs, uploads them to the ``eda`` bucket and returns
+    their public URLs under ``meta.visualization_urls`` for the frontend gallery.
+    """
+    slug = str(request.analysis_type or "").strip().lower().replace(" ", "-")
+    module_path = IMAGE_EDA_MODULES.get(slug)
+    if not module_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unknown image EDA analysis '{request.analysis_type}'. "
+                f"Valid analyses: {list(IMAGE_EDA_MODULES.keys())}"
+            ),
+        )
+    return _run_image_eda(request, module_path, slug)
+
+
+def _run_image_eda(request: EDARequest, module_path: str, analysis_name: str) -> EDAResponse:
+    start_time = time.time()
+    input_file = None
+    out_dir = None
+    try:
+        supabase_manager = get_supabase_manager()
+        module_runner = get_module_runner()
+
+        input_file, source_bucket = download_image_input(supabase_manager, request.dataset_key)
+        if not input_file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Failed to download dataset from any bucket. Key: {request.dataset_key}",
+            )
+
+        out_dir = tempfile.mkdtemp(prefix="image_eda_")
+        cli_args = [
+            "--input", os.path.abspath(input_file),
+            "--outdir", os.path.abspath(out_dir),
+            "--params", json.dumps(request.params or {}),
+        ]
+        logger.info(f"Running image EDA '{analysis_name}' via {module_path}")
+        result = module_runner.run_cli_script(module_path, cli_args)
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Image EDA failed: {result.get('error', 'Unknown error')}",
+            )
+
+        summary = parse_summary(result.get("stdout", ""))
+        stats = summary.get("stats", {})
+        viz_names = summary.get("visualizations", [])
+        dataset_id = extract_dataset_id(request.dataset_key)
+
+        visualization_keys = []
+        visualization_urls = []
+        for name in viz_names:
+            local_png = os.path.join(out_dir, name)
+            if not os.path.exists(local_png):
+                continue
+            viz_key = supabase_manager.generate_storage_key(
+                user_id=request.user_id,
+                dataset_id=dataset_id,
+                stage="eda",
+                filename=f"{analysis_name}_{name}",
+            )
+            with open(local_png, "rb") as f:
+                up = supabase_manager.upload_file(
+                    bucket_name=supabase_manager.buckets["eda"],
+                    storage_key=viz_key,
+                    file_data=f.read(),
+                    content_type="image/png",
+                )
+            if up["success"]:
+                visualization_keys.append(viz_key)
+                public_url = supabase_manager.get_public_url(
+                    bucket_name=supabase_manager.buckets["eda"], storage_key=viz_key
+                )
+                visualization_urls.append({
+                    "key": viz_key,
+                    "url": public_url,
+                    "filename": name,
+                })
+
+        artifact = Artifact(
+            user_id=request.user_id,
+            dataset_id=dataset_id,
+            stage=PipelineStage.EDA,
+            bucket_key=visualization_keys[0] if visualization_keys else "",
+            status=ProcessingStatus.COMPLETED,
+            meta={
+                "analysis_type": analysis_name,
+                "module_path": module_path,
+                "input_key": request.dataset_key,
+                "source_bucket": source_bucket,
+                "data_type": "image",
+                "visualizations": visualization_keys,
+                "stats": stats,
+            },
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db_result = supabase_manager.insert_artifact(artifact)
+        if not db_result["success"]:
+            logger.warning(f"Failed to save image EDA artifact: {db_result.get('error')}")
+
+        return EDAResponse(
+            success=True,
+            message=f"Image EDA '{analysis_name}' completed successfully",
+            output_key=visualization_keys[0] if visualization_keys else None,
+            meta={
+                "analysis_type": analysis_name,
+                "module_path": module_path,
+                "input_key": request.dataset_key,
+                "data_type": "image",
+                "analysis_results": stats,
+                "visualization_urls": visualization_urls,
+                "total_outputs": len(visualization_keys),
+            },
+            analysis_results=stats,
+            visualizations=visualization_keys,
+            insights=[f"{analysis_name.replace('-', ' ').title()} completed on image dataset"],
+            logs=[result.get("stdout", ""), result.get("stderr", "")],
+            execution_time=time.time() - start_time,
+            timestamp=datetime.utcnow().isoformat(),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error in image EDA {analysis_name}: {str(e)}",
+        )
+    finally:
+        if input_file and os.path.exists(input_file):
+            try:
+                os.remove(input_file)
+            except OSError:
+                pass
+        if out_dir and os.path.isdir(out_dir):
+            import shutil
+            shutil.rmtree(out_dir, ignore_errors=True)
