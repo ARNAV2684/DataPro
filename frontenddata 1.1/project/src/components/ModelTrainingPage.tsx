@@ -188,6 +188,13 @@ const ModelTrainingPage: React.FC = () => {
           case 'distilbert':
             response = await apiClient.trainDistilBERT(request)
             break
+          // Image classifiers (consolidated image endpoint)
+          case 'cnn-basic':
+          case 'resnet':
+          case 'efficientnet':
+          case 'vision-transformer':
+            response = await apiClient.trainImageModel(request)
+            break
           default:
             throw new Error(`Unknown model type: ${modelId}`)
         }

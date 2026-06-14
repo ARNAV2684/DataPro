@@ -335,6 +335,15 @@ export class GarudaAPIClient {
     return this.apiCall<ModelResponse>('/api/model/distilbert-finetune', 'POST', request, false, 600000) // 10 minute timeout
   }
 
+  /**
+   * Train an image classifier. `request.model_type` selects the architecture
+   * (cnn-basic, resnet, efficientnet, vision-transformer). Expects an image
+   * dataset (ZIP with class sub-folders); returns accuracy/precision/recall/F1.
+   */
+  async trainImageModel(request: ModelRequest): Promise<ModelResponse> {
+    return this.apiCall<ModelResponse>('/api/model/image', 'POST', request, false, 600000) // 10 minute timeout
+  }
+
   // ===================================
   // UTILITY METHODS
   // ===================================
