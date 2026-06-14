@@ -1,0 +1,34 @@
+# One-command deployment using prebuilt images from Docker Hub.
+#
+#   docker compose -f docker-compose.hub.yml up -d
+#
+# Frontend:  http://localhost:3000
+# Backend:   http://localhost:8000
+#
+# Provide Supabase credentials via api/.env (see api/.env.example) and ensure
+# the storage buckets exist (see SUPABASE_SETUP.md).
+services:
+  backend:
+    image: arnav2684/garuda-backend:latest
+    container_name: garuda-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ./api/.env
+        required: false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  frontend:
+    image: arnav2684/garuda-frontend:latest
+    container_name: garuda-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

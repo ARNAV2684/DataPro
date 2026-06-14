@@ -1,0 +1,40 @@
+# Build-from-source deployment for the Garuda ML Pipeline.
+#
+#   docker compose up --build
+#
+# Frontend:  http://localhost:3000
+# Backend:   http://localhost:8000  (docs at /docs)
+#
+# Create api/.env from api/.env.example first (Supabase credentials). See
+# SUPABASE_SETUP.md for the required storage buckets.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: garuda-backend:local
+    container_name: garuda-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ./api/.env
+        required: false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  frontend:
+    build:
+      context: "./frontenddata 1.1/project"
+      dockerfile: Dockerfile
+    image: garuda-frontend:local
+    container_name: garuda-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
