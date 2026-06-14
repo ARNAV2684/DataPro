@@ -254,7 +254,32 @@ async def _run_augmentation_module(request: AugmentRequest, module_path: str,
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to upload augmented data: {upload_result['error']}"
             )
-        
+
+        # If the augmentation produced a class-balance chart (SMOTE, Fig 6.3),
+        # upload it to the public `eda` bucket so it can be displayed / exported.
+        try:
+            chart_png = os.path.join(
+                os.path.dirname(processing_result["output_path"]), "class_balance.png"
+            )
+            if os.path.exists(chart_png):
+                chart_key = supabase_manager.generate_storage_key(
+                    user_id=request.user_id, dataset_id=dataset_id, stage="eda",
+                    filename=f"{technique_name}_class_balance.png",
+                )
+                with open(chart_png, "rb") as cf:
+                    chart_up = supabase_manager.upload_file(
+                        bucket_name=supabase_manager.buckets["eda"],
+                        storage_key=chart_key, file_data=cf.read(),
+                        content_type="image/png",
+                    )
+                if chart_up["success"]:
+                    chart_url = supabase_manager.get_public_url(
+                        supabase_manager.buckets["eda"], chart_key
+                    )
+                    print(f"[charts] class balance chart: {chart_url}")
+        except Exception as _chart_err:
+            print(f"[charts] class balance upload skipped: {_chart_err}")
+
         # Calculate augmentation metrics
         try:
             import pandas as pd

@@ -382,7 +382,15 @@ def main():
     
     # Save model and metrics
     save_model_and_metrics(best_model, metrics, best_params, args.output_dir)
-    
+
+    # Result charts (Fig 6.4 metrics bar, Fig 6.5 confusion matrix)
+    try:
+        import plot_utils
+        plot_utils.save_classification_charts(
+            y_test, best_model.predict(X_test), args.output_dir, "Random Forest", metrics)
+    except Exception as _chart_err:
+        print(f"[charts] skipped: {_chart_err}")
+
     print("=" * 50)
     print(f" Model and metrics saved to {args.output_dir}")
     print(" Training completed successfully!")

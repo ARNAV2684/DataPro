@@ -476,7 +476,20 @@ def main():
     
     # Evaluate model
     metrics = evaluate_model(model, dtest, y_test_enc, label_encoder)
-    
+
+    # Result charts (Fig 6.4 metrics bar, Fig 6.5 confusion matrix)
+    try:
+        import plot_utils
+        _proba = model.predict(dtest)
+        if getattr(_proba, "ndim", 1) > 1 and _proba.shape[1] > 1:
+            _pred = np.argmax(_proba, axis=1)
+        else:
+            _pred = (_proba > 0.5).astype(int)
+        plot_utils.save_classification_charts(
+            y_test_enc, _pred, args.output_dir, "XGBoost", metrics)
+    except Exception as _chart_err:
+        print(f"[charts] skipped: {_chart_err}")
+
     # Prepare preprocessors for saving
     preprocessors = {
         'tfidf': tfidf,
