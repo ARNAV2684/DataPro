@@ -305,15 +305,21 @@ const HomePage: React.FC = () => {
     return file.type.startsWith('image/')
   }
 
+  // A ZIP archive is how image datasets (optionally with class sub-folders) are uploaded.
+  const isZipFile = (file: File): boolean => {
+    return file.name.toLowerCase().endsWith('.zip') ||
+      file.type === 'application/zip' || file.type === 'application/x-zip-compressed'
+  }
+
   const isDataFile = (file: File): boolean => {
     const dataExtensions = ['.csv', '.json', '.xlsx', '.xls', '.txt', '.parquet', '.tsv', '.pdf', '.docx']
     return dataExtensions.some(ext => file.name.toLowerCase().endsWith(ext))
   }
 
   const isAcceptedFormat = (file: File): boolean => {
-    return currentConfig.acceptedFormats.some(format => 
+    return currentConfig.acceptedFormats.some(format =>
       file.name.toLowerCase().endsWith(format.toLowerCase())
-    ) || file.type.startsWith('image/') || isDataFile(file)
+    ) || file.type.startsWith('image/') || isZipFile(file) || isDataFile(file)
   }
 
   const createImagePreview = (file: File): Promise<string> => {
@@ -338,13 +344,46 @@ const HomePage: React.FC = () => {
         console.log('Is image file:', isImageFile(file))
         console.log('Is data file:', isDataFile(file))
         
-        if (isImageFile(file)) {
+        if (isZipFile(file)) {
+          // Image dataset archive (zip of images, optionally in class folders).
+          const uploadResponse = await apiClient.uploadDataset(file, {
+            user_id: user?.id || 'anonymous',
+            data_type: datasetType === 'image' ? 'image'
+              : (datasetType === 'mixed' ? 'numeric' : datasetType as any),
+            description: `Image dataset uploaded from ${datasetType} workspace`
+          })
+
+          console.log(`✅ Image archive uploaded:`, uploadResponse)
+
+          processedFiles.push({
+            file,
+            type: 'image',
+            dataset_key: uploadResponse.output_key || uploadResponse.bucket_key || uploadResponse.dataset_id,
+            output_key: uploadResponse.output_key,
+            bucket_key: uploadResponse.bucket_key,
+            dataset_id: uploadResponse.dataset_id,
+            uploaded: true
+          })
+        } else if (isImageFile(file)) {
+          // Single image: upload it AND keep a local preview for the gallery.
           const preview = await createImagePreview(file)
+          const uploadResponse = await apiClient.uploadDataset(file, {
+            user_id: user?.id || 'anonymous',
+            data_type: 'image',
+            description: `Single image uploaded from ${datasetType} workspace`
+          })
+
+          console.log(`✅ Image uploaded:`, uploadResponse)
+
           processedFiles.push({
             file,
             type: 'image',
             preview,
-            uploaded: false  // Will upload to API later when needed
+            dataset_key: uploadResponse.output_key || uploadResponse.bucket_key || uploadResponse.dataset_id,
+            output_key: uploadResponse.output_key,
+            bucket_key: uploadResponse.bucket_key,
+            dataset_id: uploadResponse.dataset_id,
+            uploaded: true
           })
         } else if (isDataFile(file)) {
           // Upload data files immediately to get dataset_key
