@@ -432,7 +432,7 @@ const PreprocessingPage: React.FC = () => {
       try {
         const uploadResponse = await apiClient.uploadDataset(firstFile.file, {
           user_id: user.id,
-          data_type: 'numeric', // Default to numeric for now
+          data_type: datasetType === 'mixed' ? 'numeric' : (datasetType as any),
           description: 'Uploaded during preprocessing'
         })
         
@@ -538,6 +538,20 @@ const PreprocessingPage: React.FC = () => {
                 user_id: user.id,
                 dataset_key: datasetKey,
                 operation: 'comparison',
+                params: step.parameters || {}
+              })
+              break
+
+            // Image preprocessing steps (handled by the consolidated image endpoint)
+            case 'image-validation':
+            case 'resize-normalize':
+            case 'color-correction':
+            case 'noise-reduction':
+            case 'format-conversion':
+              response = await apiClient.preprocessImage({
+                user_id: user.id,
+                dataset_key: datasetKey,
+                operation: step.id,
                 params: step.parameters || {}
               })
               break

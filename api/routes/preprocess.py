@@ -6,6 +6,10 @@ outlier detection, feature scaling, and tokenization.
 """
 
 import time
+import json
+import os
+import tempfile
+import uuid
 import logging
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, status
@@ -331,3 +335,188 @@ async def _run_preprocessing_module(request: PreprocessRequest, module_path: str
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error in {operation_name}: {str(e)}"
         )
+
+
+# ===================================
+# IMAGE PREPROCESSING
+# ===================================
+
+# Maps the frontend step id -> standalone image processing script.
+IMAGE_PREPROCESS_MODULES = {
+    "image-validation": "2and3week/PPimage/image_validation.py",
+    "resize-normalize": "2and3week/PPimage/resize_normalize.py",
+    "color-correction": "2and3week/PPimage/color_correction.py",
+    "noise-reduction": "2and3week/PPimage/noise_reduction.py",
+    "format-conversion": "2and3week/PPimage/format_conversion.py",
+}
+
+
+@router.post("/image", response_model=PreprocessResponse)
+async def preprocess_image(request: PreprocessRequest):
+    """Run an image preprocessing operation.
+
+    Selects the operation via ``request.operation`` (one of
+    IMAGE_PREPROCESS_MODULES). Accepts a ZIP of images (optionally with class
+    sub-folders) or a single uploaded image, and writes a processed ZIP to the
+    ``preprocessed`` bucket.
+    """
+    operation = request.operation
+    module_path = IMAGE_PREPROCESS_MODULES.get(operation)
+    if not module_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unknown image preprocessing operation '{operation}'. "
+                f"Valid operations: {list(IMAGE_PREPROCESS_MODULES.keys())}"
+            ),
+        )
+    return _run_image_preprocessing(request, module_path, operation)
+
+
+def _parse_summary(stdout: str) -> Dict[str, Any]:
+    """Extract the last JSON object printed by an image script."""
+    for line in reversed((stdout or "").strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+    return {}
+
+
+def _extract_dataset_id(dataset_key: str) -> str:
+    """Pull the dataset UUID out of a storage key, with a safe fallback."""
+    try:
+        for part in dataset_key.split("/"):
+            if part.startswith("dataset_"):
+                return part[len("dataset_"):]
+        return dataset_key.split("/")[1].replace("dataset_", "")
+    except (IndexError, AttributeError):
+        return f"images_{int(time.time())}"
+
+
+def _run_image_preprocessing(request: PreprocessRequest, module_path: str,
+                             operation_name: str) -> PreprocessResponse:
+    """Download -> run image script -> upload processed ZIP -> record artifact."""
+    start_time = time.time()
+    input_file = None
+    output_file = None
+    try:
+        supabase_manager = get_supabase_manager()
+        module_runner = get_module_runner()
+
+        # Input always comes from the original upload (datasets bucket).
+        download_result = supabase_manager.download_file(
+            bucket_name=supabase_manager.buckets["datasets"],
+            storage_key=request.dataset_key,
+        )
+        if not download_result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Failed to download dataset: {download_result['error']}",
+            )
+        input_file = download_result["local_path"]
+
+        # Image scripts always emit a ZIP.
+        out_fd, output_file = tempfile.mkstemp(suffix=".zip")
+        os.close(out_fd)
+
+        cli_args = [
+            "--input", os.path.abspath(input_file),
+            "--output", os.path.abspath(output_file),
+            "--params", json.dumps(request.params or {}),
+        ]
+        logger.info(f"Running image preprocessing '{operation_name}' via {module_path}")
+        result = module_runner.run_cli_script(module_path, cli_args)
+
+        if not result["success"]:
+            logger.error(f"Image preprocessing failed: {result.get('error')}")
+            logger.error(f"STDERR: {result.get('stderr', '')}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Image preprocessing failed: {result.get('error', 'Unknown error')}",
+            )
+
+        summary = _parse_summary(result.get("stdout", ""))
+        dataset_id = _extract_dataset_id(request.dataset_key)
+
+        output_key = supabase_manager.generate_storage_key(
+            user_id=request.user_id,
+            dataset_id=dataset_id,
+            stage="preprocessed",
+            filename="processed_images.zip",
+        )
+        with open(output_file, "rb") as f:
+            upload_result = supabase_manager.upload_file(
+                bucket_name=supabase_manager.buckets["preprocessed"],
+                storage_key=output_key,
+                file_data=f.read(),
+                content_type="application/zip",
+            )
+        if not upload_result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload results: {upload_result['error']}",
+            )
+
+        artifact_id = str(uuid.uuid4())
+        artifact = PipelineArtifact(
+            id=artifact_id,
+            user_id=request.user_id,
+            dataset_id=dataset_id,
+            stage=PipelineStage.PREPROCESS,
+            operation=operation_name,
+            bucket_key=output_key,
+            status=ProcessingStatus.COMPLETED,
+            parameters=request.params or {},
+            metadata={
+                "module_path": module_path,
+                "input_key": request.dataset_key,
+                "data_type": "image",
+                "summary": summary,
+            },
+            execution_time=time.time() - start_time,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db_result = supabase_manager.insert_pipeline_artifact(artifact)
+        if not db_result["success"]:
+            logger.warning(f"Failed to save image artifact metadata: {db_result['error']}")
+        artifact_id = db_result.get("artifact_id", artifact_id)
+
+        return PreprocessResponse(
+            success=True,
+            message=f"Image preprocessing '{operation_name}' completed successfully",
+            output_key=output_key,
+            artifact_id=artifact_id,
+            meta={
+                "operation": operation_name,
+                "module_path": module_path,
+                "input_key": request.dataset_key,
+                "dataset_id": dataset_id,
+                "data_type": "image",
+                "summary": summary,
+            },
+            changes_summary=summary,
+            data_quality={},
+            logs=[result.get("stdout", ""), result.get("stderr", "")],
+            execution_time=time.time() - start_time,
+            timestamp=datetime.utcnow().isoformat(),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error in image {operation_name}: {str(e)}",
+        )
+    finally:
+        for path in (input_file, output_file):
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+

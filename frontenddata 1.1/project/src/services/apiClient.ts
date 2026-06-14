@@ -24,7 +24,7 @@ export interface APIResponse<T = any> {
 
 export interface UploadRequest {
   user_id: string
-  data_type: 'numeric' | 'text' | 'mixed'
+  data_type: 'numeric' | 'text' | 'image' | 'mixed'
   description?: string
 }
 
@@ -205,6 +205,15 @@ export class GarudaAPIClient {
 
   async tokenizeText(request: PreprocessRequest): Promise<PreprocessResponse> {
     return this.apiCall<PreprocessResponse>('/api/preprocess/tokenization', 'POST', request)
+  }
+
+  /**
+   * Run an image preprocessing operation. `request.operation` selects the step
+   * (image-validation, resize-normalize, color-correction, noise-reduction,
+   * format-conversion). Works on a ZIP of images or a single image.
+   */
+  async preprocessImage(request: PreprocessRequest): Promise<PreprocessResponse> {
+    return this.apiCall<PreprocessResponse>('/api/preprocess/image', 'POST', request, false, getTimeout('preprocessing'))
   }
 
   // ===================================
